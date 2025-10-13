@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>XMTP Client with WalletConnect</title>
+   <!-- Tailwind CSS for styling -->
+   <script src="https://cdn.tailwindcss.com"></script>
+   
+   <!-- REMOVED: The old script tags for ethers, xmtp, and web3modal are gone from here. -->
+   <!-- They will be imported directly in the script below. -->
+
+   <style>
+       /* Simple scrollbar styling */
+       ::-webkit-scrollbar { width: 8px; }
+       ::-webkit-scrollbar-track { background: #2d3748; }
+       ::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 4px; }
+       ::-webkit-scrollbar-thumb:hover { background: #718096; }
+
+       /* Mobile view management */
+       #connected-view.chat-active > aside { display: none; }
+       #connected-view:not(.chat-active) > section { display: none; }
+       @media (min-width: 768px) {
+           #connected-view.chat-active > aside,
+           #connected-view:not(.chat-active) > section { display: flex; }
+       }
+   </style>
+</head>
+<body class="bg-gray-900 text-white font-sans flex flex-col h-screen overflow-hidden">
+
+   <!-- Header -->
+   <header class="bg-gray-800 shadow-md p-4 flex justify-between items-center z-10 flex-shrink-0">
+       <h1 class="text-xl font-bold">XMTP Chat Client</h1>
+       <div id="wallet-status">
+           <button id="connect-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+               Connect Wallet
+           </button>
+           <div id="wallet-info" class="hidden items-center">
+               <p id="wallet-address" class="bg-gray-700 text-sm rounded-l-lg px-3 py-2"></p>
+               <button id="disconnect-button" class="bg-red-600 hover:bg-red-700 text-white font-bold text-sm py-2 px-3 rounded-r-lg transition duration-300">
+                   Disconnect
+               </button>
+           </div>
+       </div>
+   </header>
+
+   <!-- Main Content -->
+   <main class="flex-grow overflow-hidden">
+       <!-- Disconnected State View -->
+       <div id="disconnected-view" class="flex flex-col items-center justify-center w-full h-full text-center p-8">
+           <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-400 mb-4"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"></path></svg>
+           <h2 class="text-2xl font-semibold mb-2">Connect Your Wallet</h2>
+           <p class="text-gray-400">Connect your wallet to start messaging on the XMTP network.</p>
+       </div>
+
+       <!-- Connected State View -->
+       <div id="connected-view" class="hidden w-full h-full md:flex">
+           <!-- Conversations List -->
+           <aside class="w-full md:w-1/3 bg-gray-800 border-r border-gray-700 flex flex-col h-full">
+               <div class="p-4 border-b border-gray-700 flex-shrink-0">
+                   <h2 class="text-lg font-semibold">Conversations</h2>
+               </div>
+               <div class="p-4 flex-shrink-0">
+                   <button id="new-conversation-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                       New Message
+                   </button>
+               </div>
+               <div id="conversations-list" class="flex-grow overflow-y-auto">
+                   <div id="loader" class="flex justify-center items-center h-full">
+                        <p class="text-gray-400">Loading conversations...</p>
+                   </div>
+               </div>
+           </aside>
+
+           <!-- Chat Area -->
+           <section id="chat-area" class="w-full md:w-2/3 flex flex-col h-full bg-gray-900">
+               <div id="no-conversation-selected" class="flex-col items-center justify-center h-full text-center p-8 hidden md:flex">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-600 mb-4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                   <h3 class="text-xl font-semibold text-gray-400">Select a conversation</h3>
+                   <p class="text-gray-500">Choose a conversation from the list or start a new one.</p>
+               </div>
+
+               <div id="conversation-container" class="hidden flex-col h-full">
+                   <div class="p-4 bg-gray-800 border-b border-gray-700 flex items-center flex-shrink-0">
+                       <button id="back-to-conversations" class="md:hidden mr-4 p-2 rounded-full hover:bg-gray-700">
+                           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                       </button>
+                       <p class="font-semibold truncate" id="chat-header-address"></p>
+                   </div>
+                   <div id="messages-container" class="flex-grow p-4 overflow-y-auto"></div>
+                   <div class="p-4 bg-gray-800 border-t border-gray-700 flex-shrink-0">
+                       <form id="send-message-form" class="flex items-center space-x-3">
+                           <input type="text" id="message-input" placeholder="Type your message..." class="flex-grow bg-gray-700 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" autocomplete="off">
+                           <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-lg transition duration-300">
+                               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-send"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                           </button>
+                       </form>
+                   </div>
+               </div>
+           </section>
+       </div>
+   </main>
+
+   <!-- CHANGED: All JS is now in one module script -->
+   <script type="module">
+       // CHANGED: Using direct imports now
+       import { ethers } from "https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js";
+       import { Client } from 'https://unpkg.com/xmtp-js@11.2.1/dist/xmtp.umd.js';
+       import { Ethers5Modal } from 'https://unpkg.com/@web3modal/ethers5@3.5.1/dist/ethers5.js';
+
+       // --- WalletConnect Configuration ---
+       const projectId = 'f805942ca9972a59da6377712d9cb7ca';
+
+       const metadata = {
+           name: 'XMTP Chat Client',
+           description: 'A simple client for the Extensible Message Transport Protocol',
+           url: window.location.host,
+           icons: ['https://avatars.githubusercontent.com/u/102179633?s=280&v=4']
+       };
+
+       const ethereumClient = new Ethers5Modal({
+           ethers,
+           projectId,
+           walletConnectParameters: {
+               metadata,
+               chains: [1], // 1 = Ethereum Mainnet
+               optionalChains: [10, 137, 42161, 8453, 5, 11155111] // Optimism, Polygon, Arbitrum, Base, Goerli, Sepolia
+           }
+       });
+
+       // --- DOM Elements ---
+       const connectButton = document.getElementById('connect-button');
+       const disconnectButton = document.getElementById('disconnect-button');
+       const walletInfoDiv = document.getElementById('wallet-info');
+       const walletAddressSpan = document.getElementById('wallet-address');
+       const disconnectedView = document.getElementById('disconnected-view');
+       const connectedView = document.getElementById('connected-view');
+       const conversationsListDiv = document.getElementById('conversations-list');
+       const noConversationSelectedDiv = document.getElementById('no-conversation-selected');
+       const conversationContainer = document.getElementById('conversation-container');
+       const messagesContainer = document.getElementById('messages-container');
+       const chatHeaderAddress = document.getElementById('chat-header-address');
+       const sendMessageForm = document.getElementById('send-message-form');
+       const messageInput = document.getElementById('message-input');
+       const newConversationBtn = document.getElementById('new-conversation-btn');
+       const backToConversationsBtn = document.getElementById('back-to-conversations');
+       const loader = document.getElementById('loader');
+
+       // --- App State ---
+       let signer = null;
+       let xmtp = null;
+       let currentConversation = null;
+
+       // --- Event Listeners ---
+       connectButton.addEventListener('click', () => ethereumClient.open());
+       disconnectButton.addEventListener('click', disconnectWallet);
+       sendMessageForm.addEventListener('submit', sendMessage);
+       newConversationBtn.addEventListener('click', handleNewConversation);
+       backToConversationsBtn.addEventListener('click', showConversationList);
+       
+       // --- WalletConnect Subscription ---
+       ethereumClient.subscribeEvents(async (event) => {
+           console.log(event);
+           if (event.name === 'CONNECT_SUCCESS') {
+               await initializeApp(event.data.provider);
+           }
+           if (event.name === 'DISCONNECT_SUCCESS') {
+               disconnectWallet();
+           }
+       });
+
+       // --- Core Functions ---
+       async function initializeApp(provider) {
+           try {
+               const web3Provider = new ethers.providers.Web3Provider(provider);
+               signer = web3Provider.getSigner();
+               const address = await signer.getAddress();
+               console.log("Wallet connected:", address);
+               updateUIForConnection(address);
+
+               console.log("Initializing XMTP client...");
+               xmtp = await Client.create(signer, { env: 'production' });
+               console.log("XMTP client created:", xmtp.address);
+               
+               loadConversations();
+               streamAllConversations();
+           } catch (e) {
+               console.error("Initialization Error:", e);
+               alert(`Could not initialize the application. You may need to sign a message to create your XMTP identity. Error: `);
+               disconnectWallet();
+           }
+       }
+
+       function disconnectWallet() {
+           ethereumClient.disconnect();
+           console.log("Disconnecting wallet.");
+           signer = null;
+           xmtp = null;
+           currentConversation = null;
+           updateUIForDisconnection();
+       }
+
+       function updateUIForConnection(address) {
+           connectButton.classList.add('hidden');
+           walletInfoDiv.classList.remove('hidden');
+           walletInfoDiv.classList.add('flex');
+           walletAddressSpan.textContent = `...`;
+           disconnectedView.classList.add('hidden');
+           connectedView.classList.remove('hidden');
+           connectedView.classList.add('md:flex');
+       }
+
+       function updateUIForDisconnection() {
+           connectButton.classList.remove('hidden');
+           walletInfoDiv.classList.add('hidden');
+           disconnectedView.classList.remove('hidden');
+           disconnectedView.classList.add('flex');
+           connectedView.classList.add('hidden');
+           connectedView.classList.remove('md:flex');
+           conversationsListDiv.innerHTML = '<div id="loader" class="flex justify-center items-center h-full"><p class="text-gray-400">Loading conversations...</p></div>';
+           showConversationList();
+       }
+
+       async function loadConversations() {
+           if (!xmtp) return;
+           console.log("Loading conversations...");
+           loader.style.display = 'flex';
+           conversationsListDiv.innerHTML = '';
+           const allConversations = await xmtp.conversations.list();
+           console.log(`Found  conversations.`);
+           
+           if (allConversations.length === 0) {
+                conversationsListDiv.innerHTML = '<p class="text-gray-400 text-center p-4">No conversations yet.</p>';
+           }
+
+           for (const conv of allConversations) {
+               renderConversation(conv);
+           }
+           loader.style.display = 'none';
+       }
+       
+       async function streamAllConversations() {
+           console.log("Streaming all new conversations...");
+           for await (const conv of await xmtp.conversations.stream()) {
+               console.log("New conversation stream received for:", conv.peerAddress);
+               const existing = document.querySelector(`[data-peer-address='']`);
+               if (!existing) {
+                   renderConversation(conv);
+               }
+           }
+       }
+
+       function renderConversation(conv) {
+           const peerAddr = conv.peerAddress;
+           const convDiv = document.createElement('div');
+           convDiv.dataset.peerAddress = peerAddr;
+           convDiv.className = "p-4 border-b border-gray-700 cursor-pointer hover:bg-gray-700 transition duration-200";
+           convDiv.innerHTML = `<p class="font-semibold truncate"></p>`;
+           convDiv.onclick = () => selectConversation(conv);
+           
+           const noConvMsg = conversationsListDiv.querySelector('p');
+           if(noConvMsg && noConvMsg.textContent.includes('No conversations yet')) {
+               conversationsListDiv.innerHTML = '';
+           }
+           conversationsListDiv.prepend(convDiv);
+       }
+
+       async function selectConversation(conv) {
+           console.log("Selecting conversation with:", conv.peerAddress);
+           currentConversation = conv;
+           
+           connectedView.classList.add('chat-active');
+           noConversationSelectedDiv.classList.add('hidden');
+           conversationContainer.classList.remove('hidden');
+           conversationContainer.classList.add('flex');
+           chatHeaderAddress.textContent = conv.peerAddress;
+           messagesContainer.innerHTML = '<div class="text-center text-gray-500">Loading messages...</div>';
+
+           document.querySelectorAll('#conversations-list > div').forEach(div => {
+               div.classList.toggle('bg-indigo-900', div.dataset.peerAddress === conv.peerAddress);
+           });
+
+           const messages = await conv.messages();
+           console.log(`Loaded  messages.`);
+           messagesContainer.innerHTML = '';
+           messages.forEach(renderMessage);
+           scrollToBottom();
+           streamMessages(conv);
+       }
+
+       function showConversationList() {
+            connectedView.classList.remove('chat-active');
+            conversationContainer.classList.add('hidden');
+            noConversationSelectedDiv.classList.remove('hidden');
+            currentConversation = null;
+            document.querySelectorAll('#conversations-list > div').forEach(div => {
+               div.classList.remove('bg-indigo-900');
+           });
+       }
+
+       async function streamMessages(conv) {
+           console.log("Streaming messages for:", conv.peerAddress);
+           for await (const message of await conv.streamMessages()) {
+               if (currentConversation && conv.peerAddress === currentConversation.peerAddress) {
+                   console.log("New message received:", message.content);
+                   renderMessage(message);
+                   scrollToBottom();
+               }
+           }
+       }
+       
+       function renderMessage(message) {
+           const isSender = message.senderAddress === xmtp.address;
+           const msgDiv = document.createElement('div');
+           msgDiv.className = `flex mb-4  'justify-start'`;
+
+           const contentDiv = document.createElement('div');
+           contentDiv.className = `max-w-md rounded-lg px-4 py-2 break-words  'bg-gray-700'`;
+           contentDiv.textContent = message.content;
+
+           msgDiv.appendChild(contentDiv);
+           messagesContainer.appendChild(msgDiv);
+       }
+
+       async function sendMessage(e) {
+           e.preventDefault();
+           const message = messageInput.value.trim();
+           if (!message || !currentConversation) return;
+
+           try {
+               console.log("Sending message:", message);
+               await currentConversation.send(message);
+               messageInput.value = '';
+               scrollToBottom();
+           } catch (error) {
+               console.error("Failed to send message:", error);
+               alert(`Failed to send message. Error: `);
+           }
+       }
+
+       async function handleNewConversation() {
+           const recipientAddress = prompt("Enter the Ethereum address of the recipient:");
+           if (!recipientAddress) return;
+
+           if (!ethers.utils.isAddress(recipientAddress)) {
+               alert("Invalid Ethereum address.");
+               return;
+           }
+           if(recipientAddress.toLowerCase() === xmtp.address.toLowerCase()){
+                alert("You cannot start a conversation with yourself.");
+                return;
+           }
+
+           console.log("Starting new conversation with:", recipientAddress);
+           try {
+               const canMessage = await xmtp.canMessage(recipientAddress);
+               if (!canMessage) {
+                   alert("This address is not registered on the XMTP network. The user may need to connect their wallet to an XMTP app once to activate their identity.");
+                   return;
+               }
+               const newConv = await xmtp.conversations.newConversation(recipientAddress);
+               
+               if (!document.querySelector(`[data-peer-address='']`)) {
+                   renderConversation(newConv);
+               }
+               selectConversation(newConv);
+
+           } catch (error) {
+               console.error("Failed to start new conversation:", error);
+               alert(`Could not start a new conversation. Error: `);
+           }
+       }
+
+       function scrollToBottom() {
+           messagesContainer.scrollTop = messagesContainer.scrollHeight;
+       }
+
+   </script>
+</body>
+</html>
