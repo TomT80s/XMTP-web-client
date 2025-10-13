@@ -99,8 +99,8 @@
    </main>
 
    <script type="module">
-       // CHANGED: Using esm.sh CDN for robust module loading
-       import { ethers } from 'https://esm.sh/ethers@5.7.2';
+       // FINAL FIX: Import the entire 'ethers' module namespace
+       import * as ethers from 'https://esm.sh/ethers@5.7.2';
        import { Client } from 'https://esm.sh/@xmtp/xmtp-js@11.2.1';
        import { Ethers5Modal } from 'https://esm.sh/@web3modal/ethers5@3.5.1';
 
@@ -180,7 +180,7 @@
                
                loadConversations();
                streamAllConversations();
-           } catch (e) {
+           } catch (e).
                console.error("Initialization Error:", e);
                alert(`Could not initialize the application. You may need to sign a message to create your XMTP identity. Error: ${e.message}`);
                disconnectWallet();
