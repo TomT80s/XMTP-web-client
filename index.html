@@ -6,9 +6,6 @@
    <title>XMTP Client with WalletConnect</title>
    <!-- Tailwind CSS for styling -->
    <script src="https://cdn.tailwindcss.com"></script>
-   
-   <!-- REMOVED: The old script tags for ethers, xmtp, and web3modal are gone from here. -->
-   <!-- They will be imported directly in the script below. -->
 
    <style>
        /* Simple scrollbar styling */
@@ -101,12 +98,11 @@
        </div>
    </main>
 
-   <!-- CHANGED: All JS is now in one module script -->
    <script type="module">
-       // CHANGED: Using direct imports now
-       import { ethers } from "https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js";
-       import { Client } from 'https://unpkg.com/xmtp-js@11.2.1/dist/xmtp.umd.js';
-       import { Ethers5Modal } from 'https://unpkg.com/@web3modal/ethers5@3.5.1/dist/ethers5.js';
+       // CHANGED: Using esm.sh CDN for robust module loading
+       import { ethers } from 'https://esm.sh/ethers@5.7.2';
+       import { Client } from 'https://esm.sh/@xmtp/xmtp-js@11.2.1';
+       import { Ethers5Modal } from 'https://esm.sh/@web3modal/ethers5@3.5.1';
 
        // --- WalletConnect Configuration ---
        const projectId = 'f805942ca9972a59da6377712d9cb7ca';
@@ -186,7 +182,7 @@
                streamAllConversations();
            } catch (e) {
                console.error("Initialization Error:", e);
-               alert(`Could not initialize the application. You may need to sign a message to create your XMTP identity. Error: `);
+               alert(`Could not initialize the application. You may need to sign a message to create your XMTP identity. Error: ${e.message}`);
                disconnectWallet();
            }
        }
@@ -204,7 +200,7 @@
            connectButton.classList.add('hidden');
            walletInfoDiv.classList.remove('hidden');
            walletInfoDiv.classList.add('flex');
-           walletAddressSpan.textContent = `...`;
+           walletAddressSpan.textContent = `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
            disconnectedView.classList.add('hidden');
            connectedView.classList.remove('hidden');
            connectedView.classList.add('md:flex');
@@ -227,7 +223,7 @@
            loader.style.display = 'flex';
            conversationsListDiv.innerHTML = '';
            const allConversations = await xmtp.conversations.list();
-           console.log(`Found  conversations.`);
+           console.log(`Found ${allConversations.length} conversations.`);
            
            if (allConversations.length === 0) {
                 conversationsListDiv.innerHTML = '<p class="text-gray-400 text-center p-4">No conversations yet.</p>';
@@ -243,7 +239,7 @@
            console.log("Streaming all new conversations...");
            for await (const conv of await xmtp.conversations.stream()) {
                console.log("New conversation stream received for:", conv.peerAddress);
-               const existing = document.querySelector(`[data-peer-address='']`);
+               const existing = document.querySelector(`[data-peer-address='${conv.peerAddress}']`);
                if (!existing) {
                    renderConversation(conv);
                }
@@ -255,7 +251,7 @@
            const convDiv = document.createElement('div');
            convDiv.dataset.peerAddress = peerAddr;
            convDiv.className = "p-4 border-b border-gray-700 cursor-pointer hover:bg-gray-700 transition duration-200";
-           convDiv.innerHTML = `<p class="font-semibold truncate"></p>`;
+           convDiv.innerHTML = `<p class="font-semibold truncate">${peerAddr}</p>`;
            convDiv.onclick = () => selectConversation(conv);
            
            const noConvMsg = conversationsListDiv.querySelector('p');
@@ -281,7 +277,7 @@
            });
 
            const messages = await conv.messages();
-           console.log(`Loaded  messages.`);
+           console.log(`Loaded ${messages.length} messages.`);
            messagesContainer.innerHTML = '';
            messages.forEach(renderMessage);
            scrollToBottom();
@@ -312,10 +308,10 @@
        function renderMessage(message) {
            const isSender = message.senderAddress === xmtp.address;
            const msgDiv = document.createElement('div');
-           msgDiv.className = `flex mb-4  'justify-start'`;
+           msgDiv.className = `flex mb-4 ${isSender ? 'justify-end' : 'justify-start'}`;
 
            const contentDiv = document.createElement('div');
-           contentDiv.className = `max-w-md rounded-lg px-4 py-2 break-words  'bg-gray-700'`;
+           contentDiv.className = `max-w-md rounded-lg px-4 py-2 break-words ${isSender ? 'bg-indigo-600' : 'bg-gray-700'}`;
            contentDiv.textContent = message.content;
 
            msgDiv.appendChild(contentDiv);
@@ -334,7 +330,7 @@
                scrollToBottom();
            } catch (error) {
                console.error("Failed to send message:", error);
-               alert(`Failed to send message. Error: `);
+               alert(`Failed to send message. Error: ${error.message}`);
            }
        }
 
@@ -360,14 +356,14 @@
                }
                const newConv = await xmtp.conversations.newConversation(recipientAddress);
                
-               if (!document.querySelector(`[data-peer-address='']`)) {
+               if (!document.querySelector(`[data-peer-address='${recipientAddress}']`)) {
                    renderConversation(newConv);
                }
                selectConversation(newConv);
 
            } catch (error) {
                console.error("Failed to start new conversation:", error);
-               alert(`Could not start a new conversation. Error: `);
+               alert(`Could not start a new conversation. Error: ${error.message}`);
            }
        }
 
