@@ -3,7 +3,7 @@
 <head>
    <meta charset="UTF-8">
    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-   <title>XMTP Client with WalletConnect</title>
+   <title>XMTP Client with Web3Modal</title>
    <!-- Tailwind CSS for styling -->
    <script src="https://cdn.tailwindcss.com"></script>
 
@@ -29,9 +29,8 @@
    <header class="bg-gray-800 shadow-md p-4 flex justify-between items-center z-10 flex-shrink-0">
        <h1 class="text-xl font-bold">XMTP Chat Client</h1>
        <div id="wallet-status">
-           <button id="connect-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
-               Connect Wallet
-           </button>
+           <!-- Web3Modal connect button will be rendered here -->
+            <div id="connect-button-container"></div>
            <div id="wallet-info" class="hidden items-center">
                <p id="wallet-address" class="bg-gray-700 text-sm rounded-l-lg px-3 py-2"></p>
                <button id="disconnect-button" class="bg-red-600 hover:bg-red-700 text-white font-bold text-sm py-2 px-3 rounded-r-lg transition duration-300">
@@ -99,33 +98,41 @@
    </main>
 
    <script type="module">
-       // FINAL FIX: Import the entire 'ethers' module namespace
        import * as ethers from 'https://esm.sh/ethers@5.7.2';
        import { Client } from 'https://esm.sh/@xmtp/xmtp-js@11.2.1';
-       import { Ethers5Modal } from 'https://esm.sh/@web3modal/ethers5@3.5.1';
+       import { createWeb3Modal, defaultConfig } from 'https://esm.sh/@web3modal/ethers5';
 
-       // --- WalletConnect Configuration ---
+       // --- Web3Modal Configuration ---
        const projectId = 'f805942ca9972a59da6377712d9cb7ca';
+
+       const mainnet = {
+           chainId: 1,
+           name: 'Ethereum',
+           currency: 'ETH',
+           explorerUrl: 'https://etherscan.io',
+           rpcUrl: 'https://cloudflare-eth.com'
+       };
 
        const metadata = {
            name: 'XMTP Chat Client',
-           description: 'A simple client for the Extensible Message Transport Protocol',
-           url: window.location.host,
+           description: 'A simple, private web3 messenger',
+           url: 'https://xmtp-web-client.vercel.app/',
            icons: ['https://avatars.githubusercontent.com/u/102179633?s=280&v=4']
        };
 
-       const ethereumClient = new Ethers5Modal({
-           ethers,
+       const modal = createWeb3Modal({
+           ethersConfig: defaultConfig({ metadata }),
+           chains: [mainnet],
            projectId,
-           walletConnectParameters: {
-               metadata,
-               chains: [1], // 1 = Ethereum Mainnet
-               optionalChains: [10, 137, 42161, 8453, 5, 11155111] // Optimism, Polygon, Arbitrum, Base, Goerli, Sepolia
+           enableAnalytics: false,
+           // The new SDK uses a Web Component for the button, so we target a container
+           themeVariables: {
+               '--w3m-z-index': 1000 // Ensure modal is on top
            }
        });
 
        // --- DOM Elements ---
-       const connectButton = document.getElementById('connect-button');
+       const connectButtonContainer = document.getElementById('connect-button-container');
        const disconnectButton = document.getElementById('disconnect-button');
        const walletInfoDiv = document.getElementById('wallet-info');
        const walletAddressSpan = document.getElementById('wallet-address');
@@ -148,29 +155,27 @@
        let currentConversation = null;
 
        // --- Event Listeners ---
-       connectButton.addEventListener('click', () => ethereumClient.open());
-       disconnectButton.addEventListener('click', disconnectWallet);
+       disconnectButton.addEventListener('click', () => modal.disconnect());
        sendMessageForm.addEventListener('submit', sendMessage);
        newConversationBtn.addEventListener('click', handleNewConversation);
        backToConversationsBtn.addEventListener('click', showConversationList);
        
-       // --- WalletConnect Subscription ---
-       ethereumClient.subscribeEvents(async (event) => {
-           console.log(event);
-           if (event.name === 'CONNECT_SUCCESS') {
-               await initializeApp(event.data.provider);
-           }
-           if (event.name === 'DISCONNECT_SUCCESS') {
+       // --- Web3Modal Subscription ---
+       modal.subscribeProvider(async ({ provider, isConnected, address }) => {
+           if (isConnected && provider && address) {
+               await initializeApp(provider, address);
+           } else {
                disconnectWallet();
            }
        });
 
        // --- Core Functions ---
-       async function initializeApp(provider) {
+       async function initializeApp(provider, address) {
            try {
+               // The provider from Web3Modal is already an EIP-1193 provider
                const web3Provider = new ethers.providers.Web3Provider(provider);
                signer = web3Provider.getSigner();
-               const address = await signer.getAddress();
+               
                console.log("Wallet connected:", address);
                updateUIForConnection(address);
 
@@ -180,7 +185,7 @@
                
                loadConversations();
                streamAllConversations();
-           } catch (e).
+           } catch (e) {
                console.error("Initialization Error:", e);
                alert(`Could not initialize the application. You may need to sign a message to create your XMTP identity. Error: ${e.message}`);
                disconnectWallet();
@@ -188,7 +193,6 @@
        }
 
        function disconnectWallet() {
-           ethereumClient.disconnect();
            console.log("Disconnecting wallet.");
            signer = null;
            xmtp = null;
@@ -197,7 +201,7 @@
        }
 
        function updateUIForConnection(address) {
-           connectButton.classList.add('hidden');
+           connectButtonContainer.style.display = 'none';
            walletInfoDiv.classList.remove('hidden');
            walletInfoDiv.classList.add('flex');
            walletAddressSpan.textContent = `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
@@ -207,7 +211,7 @@
        }
 
        function updateUIForDisconnection() {
-           connectButton.classList.remove('hidden');
+           connectButtonContainer.style.display = 'block';
            walletInfoDiv.classList.add('hidden');
            disconnectedView.classList.remove('hidden');
            disconnectedView.classList.add('flex');
@@ -221,16 +225,16 @@
            if (!xmtp) return;
            console.log("Loading conversations...");
            loader.style.display = 'flex';
-           conversationsListDiv.innerHTML = '';
+           conversationsListDiv.innerHTML = '<p class="text-gray-400 text-center p-4">No conversations yet.</p>';
+           
            const allConversations = await xmtp.conversations.list();
            console.log(`Found ${allConversations.length} conversations.`);
            
-           if (allConversations.length === 0) {
-                conversationsListDiv.innerHTML = '<p class="text-gray-400 text-center p-4">No conversations yet.</p>';
-           }
-
-           for (const conv of allConversations) {
-               renderConversation(conv);
+           if (allConversations.length > 0) {
+                conversationsListDiv.innerHTML = '';
+                for (const conv of allConversations) {
+                   renderConversation(conv);
+               }
            }
            loader.style.display = 'none';
        }
@@ -255,7 +259,7 @@
            convDiv.onclick = () => selectConversation(conv);
            
            const noConvMsg = conversationsListDiv.querySelector('p');
-           if(noConvMsg && noConvMsg.textContent.includes('No conversations yet')) {
+           if(noConvMsg) {
                conversationsListDiv.innerHTML = '';
            }
            conversationsListDiv.prepend(convDiv);
@@ -369,6 +373,16 @@
 
        function scrollToBottom() {
            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+       }
+
+       // --- Initial UI Setup ---
+       // The new library provides its own button via a web component
+       connectButtonContainer.innerHTML = '<w3m-button></w3m-button>';
+       const initialProviderState = modal.getWalletProvider();
+       if(initialProviderState?.isConnected) {
+          initializeApp(initialProviderState.provider, initialProviderState.address);
+       } else {
+          updateUIForDisconnection();
        }
 
    </script>
